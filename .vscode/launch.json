@@ -138,6 +138,18 @@
         {
             "type": "node",
             "request": "launch",
+            "name": "demoOnConversationStart",
+            "program": "${workspaceFolder}/lib/demos/demoOnConversationStart.js",
+            "outFiles": [
+                "${workspaceFolder}/**/*.js"
+            ],
+            "runtimeArgs": [
+                "--preserve-symlinks"
+            ]
+        },
+        {
+            "type": "node",
+            "request": "launch",
             "name": "Conversation Learner UI",
             "program": "${workspaceFolder}/lib/ui.js",
             "outFiles": [
