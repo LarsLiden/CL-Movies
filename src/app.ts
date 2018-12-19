@@ -5,8 +5,10 @@
 import * as path from 'path'
 import * as express from 'express'
 import { BotFrameworkAdapter } from 'botbuilder'
-import { ConversationLearner, ClientMemoryManager, FileStorage } from '@conversationlearner/sdk'
+import { FindMovieMatch, FindShowingMatch, Movie, TimeRange, Showing, FindTimeMatch, MomentRange, DATE_FORMAT, TIME_FORMAT, DATETIME_FORMAT, toMomentRange, toTimeRange } from './movie'
+import { ConversationLearner, ClientMemoryManager, /*ReadOnlyClientMemoryManager,*/ FileStorage, MemoryValue } from '@conversationlearner/sdk'
 import chalk from 'chalk'
+import * as moment from 'moment'
 import config from './config'
 
 console.log(`Config:\n`, JSON.stringify(config, null, '  '))
@@ -54,48 +56,130 @@ const cl = new ConversationLearner(modelId)
 */
 cl.EntityDetectionCallback(async (text: string, memoryManager: ClientMemoryManager): Promise<void> => {
 
-    memoryManager.Get("name", ClientMemoryManager.AS_STRING)
+    // Split datetime into date and teim
+    let dateTimeRange = memoryManager.Get("filter-datetime", DATE_AS_MOMENTRANGE)
+    memoryManager.Delete("filter-datetime")
+ 
+    // TODO : what if user sends both?
 
-    /** Add business logic manipulating the entities in memory 
+    let dateRange = memoryManager.Get("filter-date", DATE_AS_MOMENTRANGE)
+    memoryManager.Delete("filter-date")
 
-    // GET - Values currently in bot memory
-    memoryManager.Get(entityName: string, converter: (memoryValues: MemoryValue[])
-    i.e. memoryManager.Get("counters", ClientMemoryManager.AS_NUMBER_LIST)
+    let timeRange = memoryManager.Get("filter-time", DATE_AS_MOMENTRANGE)
+    memoryManager.Delete("filter-time")
 
-    // GET - Values in memory before new Entity detection
-    memoryManager.GetPrevious(entityName: string, converter: (memoryValues: MemoryValue[])
-    i.e. memoryManager.GetPrevious("location", ClientMemoryManager.AS_VALUE)
+    // Get existing filter
+    let existingRange = memoryManager.Get("resolved-times", AS_MOMENTRANGE)
 
-    // SET
-    memoryManager.Set(entityName: string, true)
-    i.e. memoryManager.Set("toppings", ["cheese", "peppers"])
-   
-    // DELETE
-    memoryManager.Delete(entityName: string, value?: string): void
-    memoryManager.DeleteAll(saveEntityNames: string[]): void
-
-    // COPY
-    memoryManager.CopyEntity(entityNameFrom: string, entityNameTo: string): void
-
-    // Info about the current running Session
-    memoryManager.SessionInfo(): SessionInfo
-    */
+    // Merge data
+    let momentRange: MomentRange = {
+        startDate: dateTimeRange.startDate || dateRange.startDate || existingRange.startDate,
+        startTime: dateTimeRange.startTime || timeRange.startTime || existingRange.startTime,
+        endDate: dateRange.endDate || existingRange.endDate,
+        endTime: dateRange.endTime || existingRange.endTime
+    }
+    
+    // Save backout
+    memoryManager.Set("resolved-times", toTimeRange(momentRange))
 })
 
 //=================================
 // Define any API callbacks
 //=================================
-/*
-cl.AddCallback<number>({
-    name: "Add",
-    logic: async (memoryManager, arg1: string, arg2: string) => {
-        return [arg1, arg2]
-            .map(x => parseInt(x))
-            .reduce((sum, a) => sum += a, 0)
-    },
-    render: async result => `Add result is: ${result}`
+
+function DATE_AS_MOMENTRANGE(memoryValues: MemoryValue[]): MomentRange {
+
+    let startDate: moment.Moment | null = null
+    let startTime: moment.Moment | null = null
+    let endDate: moment.Moment | null = null
+    let endTime: moment.Moment | null = null
+
+    if (memoryValues.length > 0 && memoryValues[0].resolution) {
+        
+        let values = (memoryValues[0].resolution as any)['values']
+        if (values !== undefined) {
+    
+            // Always pick the last if more than one (for now)
+            let resolution = values[values.length - 1]
+
+            if (resolution.type === "date") {
+                startDate = moment(resolution.value, DATE_FORMAT)
+            }
+            else if (resolution.type === "time") {
+                startTime = moment(resolution.value, TIME_FORMAT)
+            }
+            else if (resolution.type === "datetime") {
+                // Separate out date and time
+                let dateTime = moment(resolution.value, DATETIME_FORMAT)
+                startDate = moment(dateTime.format(DATE_FORMAT), DATE_FORMAT)
+                startTime =  moment(dateTime.format(TIME_FORMAT), TIME_FORMAT)
+            }
+            else if(resolution.type === "datetimerange") {
+                // Separate out date and time
+                let startDateTime = moment(resolution.start, DATETIME_FORMAT)
+                startDate = moment(startDateTime.format(DATE_FORMAT), DATE_FORMAT)
+                startTime =  moment(startDateTime.format(TIME_FORMAT), TIME_FORMAT)
+
+                // Only store end 
+                let endDateTime = moment(resolution.end, DATETIME_FORMAT)
+                endDate = moment(endDateTime.format(DATE_FORMAT), DATE_FORMAT)
+                endTime =  moment(endDateTime.format(TIME_FORMAT), TIME_FORMAT)
+            }
+        }
+    }
+    return {startDate, startTime, endDate, endTime}
+}
+
+function AS_MOMENTRANGE(memoryValues: MemoryValue[]): MomentRange {
+    let timeRange: TimeRange =memoryValues[0] ? JSON.parse(memoryValues[0].userText!) : null
+    return toMomentRange(timeRange)
+}
+
+cl.AddCallback({
+    name: "GetMovies",
+    logic: async (memoryManager: ClientMemoryManager) => {
+        // Find movies that meet filter criteria
+        let movieName = memoryManager.Get("filter-movie-name", ClientMemoryManager.AS_STRING)
+        let genre = memoryManager.Get("filter-genre", ClientMemoryManager.AS_STRING)
+        let city = memoryManager.Get("filter-city", ClientMemoryManager.AS_STRING)
+        let state = memoryManager.Get("filter-state", ClientMemoryManager.AS_STRING)
+        let theaterName = memoryManager.Get("filter-theater", ClientMemoryManager.AS_STRING)
+
+        let dateTimeRange: MomentRange = memoryManager.Get("resolved-times", AS_MOMENTRANGE)
+        let movies : Movie[] = FindMovieMatch(movieName, genre, city, state, theaterName, dateTimeRange)
+
+
+        if (movies.length === 0) {
+            // Clear found slots
+            memoryManager.Delete("found-time")
+            memoryManager.Delete("found-theater")
+        }
+        // If a single movie, get maching showtimes
+        else if (movies.length == 1) {
+            memoryManager.Set("found-movies", movies[0].name)
+            let showings: Showing[] = FindShowingMatch(movies[0], city, state, theaterName, dateTimeRange)
+
+            // If a single showing, get matching times
+            if (showings.length == 1) {
+                let times: moment.Moment[] = FindTimeMatch(showings[0], dateTimeRange)
+
+                // If a single matching time, we have a unique target
+                if (times.length == 1) {
+                    memoryManager.Set("found-time", times[0].format("LT"))
+                    memoryManager.Set("found-theater", showings[0].theater.name)
+                }
+            }
+            
+        }
+        else if (movies.length < 5) {
+            memoryManager.Delete("found-time")
+            memoryManager.Delete("found-theater")
+            memoryManager.Set("found-movies", movies.map(m => m.name))
+        }
+        //memoryManager.Set("movies", movies)
+    }
 })
-*/
+
 
 //=================================
 // Handle Incoming Messages
