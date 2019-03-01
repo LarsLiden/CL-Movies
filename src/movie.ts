@@ -55,6 +55,7 @@ export interface Showing {
 
 export interface Theater {
     name: string,
+    shortName: string,
     location: Location,
 }
 export interface Location {
@@ -64,7 +65,9 @@ export interface Location {
 
 export interface Movie {
     name: string
-    genre: string
+    genre: string[]
+    rating: number,
+    theaters: string[]
     showings: Showing[]
 }
 
@@ -112,6 +115,11 @@ export function FindShowingMatch(
 }
 
 
+export function stringMatch(text1: string, text2: string) {
+    let text11 = text1.toLowerCase().replace("'","")
+    let text22 = text2.toLowerCase().replace("'","")
+    return text11 === text22
+}
 export function FindMovieMatch(
     movieName: string | null,
     genre: string | null,
@@ -122,12 +130,11 @@ export function FindMovieMatch(
         
     let matchedMovies = [...getMovies()]
     if (movieName) {
-        let movieNameTest = movieName.toLowerCase()
-        matchedMovies = matchedMovies.filter(m => m.name.toLowerCase() === movieNameTest)
+        matchedMovies = matchedMovies.filter(m => stringMatch(m.name, movieName))
     }
     if (genre) {
         let genreTest = genre.toLowerCase()
-        matchedMovies = matchedMovies.filter(m => m.genre.toLowerCase() === genreTest)
+        matchedMovies = matchedMovies.filter(m => m.genre.find(g => g.toLowerCase() === genreTest))
     }
     matchedMovies = matchedMovies.filter(m => FindShowingMatch(m, city, state, theaterName, dateTimeRange).length > 0)
    
@@ -155,14 +162,18 @@ function createTimes(): moment.Moment[] {
     return times
 }
 
-function createShowings(): Showing[] {
+function createShowings(include: string[]): Showing[] {
     let showings: Showing[] = []
-    theaters.forEach(theater => {
-        let showing: Showing = {
-            theater,
-            times: createTimes()
+
+    let includedTheaters = include.map(shortName => theaters.find(t => t.shortName === shortName))
+    includedTheaters.forEach(theater => {
+            if (theater) {
+            let showing: Showing = {
+                theater,
+                times: createTimes()
+            }
+            showings.push(showing)
         }
-        showings.push(showing)
     })
     return showings
 }
@@ -172,8 +183,10 @@ function createMovies(): Movie[] {
     movieNames.forEach(partialMovie => {
         let movie: Movie = {
             name: partialMovie.name!,
-            genre: partialMovie.genre!, 
-            showings: createShowings() }
+            genre: partialMovie.genre || [],
+            rating: partialMovie.rating || 50,
+            theaters: partialMovie.theaters || [],
+            showings: createShowings(partialMovie.theaters || []) }
         movies.push(movie)
         }
     )
@@ -182,26 +195,45 @@ function createMovies(): Movie[] {
 
 let theaters: Theater[] = [
     {
-        name: "REGAL LLOYD CENTER 10",
-        location: {city: "Portland", state: "Oregon"}
-    },
-    {
-        name: "Regal Meridian 16",
+        name: "AMC PACIFIC PLACE 11",
+        shortName: "APP11",
         location: {city: "Seattle", state: "Washington"}
     },
     {
         name: "AMC SHOWPLACE CARBONDALE 8",
+        shortName: "ASC8",
         location: {city: "Carbondale", state: "Illinois"}
+    },
+    {
+        name: "REGAL LLOYD CENTER 10",
+        shortName: "RLC10",
+        location: {city: "Portland", state: "Oregon"}
+    },
+    {
+        name: "Regal Meridian 16",
+        shortName: "RM16",
+        location: {city: "Seattle", state: "Washington"}
     }
 ]
 
 let movieNames: Partial<Movie>[] = [
-    {name: "Star Wars", genre: "SciFi"},
-    {name: "Zoolander 2", genre: "Comedy"},
-    {name: "The Other Side of the Door", genre: "Thriller"},
-    {name: "The Which", genre: "Thriller"},
-    {name: "The Boy", genre: "Thriller"},
-    {name: "Deadpool", genre: "Action"}
-    {name: "London Has Fallen", genre: "Action"}
-    {name: "The Revenant", genre: "Action"}
+    {name: "10 Cloverfield Lane", genre: ["NewRelese"], theaters: ["APP11"]},
+    {name: "Deadpool", genre: ["Action", "Violent"], rating: 84},
+    {name: "Kung Fu Panda 3", theaters: ["RM16"]},
+    {name: "London Has Fallen", genre: ["Action"], theaters: ["RM16"]},
+    {name: "Spotlight", theaters: ["RM16"]},
+    {name: "Star Wars", genre: ["SciFi"], theaters: ["RLC10", "RM16"]},
+    {name: "The Other Side of the Door", genre: ["Thriller"], theaters: ["ASC8"]},
+    {name: "The Big Short"},
+    {name: "The Danish Girl"},
+    {name: "The Boy", genre: ["Thriller"], theaters: ["ASC8"]},
+    {name: "The Brothers Grimsby", genre: ["NewRelese"], theaters: ["APP11"]},
+    {name: "The Perfect Match", genre: ["NewRelese"], theaters: ["APP11"]},
+    {name: "The Revenant", genre: ["Action"]},
+    {name: "The Which", genre: ["Thriller"], theaters: ["ASC8"]},
+    {name: "Triple 9", theaters: ["RM16"]},
+    {name: "Where to Invade Next"},
+    {name: "Whiskey Tango Foxtrot", theaters: ["RM16"]}, 
+    {name: "Zoolander 2", genre: ["Comedy"], theaters: ["RM16"]},
+    {name: "Zootopia", theaters: ["RM16"]},
 ]

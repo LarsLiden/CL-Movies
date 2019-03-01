@@ -46,6 +46,13 @@ if (includeSdk) {
 
 const cl = new ConversationLearner(modelId)
 
+function genreSynonym(genre: string) {
+    if (genre === "new releases" || genre == "new release") {
+        return "NewRelese"
+    }
+    return genre
+}
+
 //=================================
 // Add Entity Logic
 //=================================
@@ -55,6 +62,13 @@ const cl = new ConversationLearner(modelId)
 * @returns {Promise<void>}
 */
 cl.EntityDetectionCallback(async (text: string, memoryManager: ClientMemoryManager): Promise<void> => {
+
+    let genres = memoryManager.Get("filter-genre", ClientMemoryManager.AS_STRING_LIST)
+    if (genres.length > 0) {
+        genres = genres.map(g => genreSynonym(g))
+        memoryManager.Delete('filter-genre')
+        memoryManager.Set('filter-genre', genres)
+    }
 
     // Split datetime into date and teim
     let dateTimeRange = memoryManager.Get("filter-datetime", DATE_AS_MOMENTRANGE)
@@ -78,9 +92,13 @@ cl.EntityDetectionCallback(async (text: string, memoryManager: ClientMemoryManag
         endDate: dateRange.endDate || existingRange.endDate,
         endTime: dateRange.endTime || existingRange.endTime
     }
-    
-    // Save backout
-    memoryManager.Set("resolved-times", toTimeRange(momentRange))
+
+    if (!momentRange.startDate && !momentRange.startTime && !momentRange.endDate && !momentRange.endTime) {
+        memoryManager.Delete("resolved-times")
+    }
+    else {  
+        memoryManager.Set("resolved-times", toTimeRange(momentRange))
+    }
 })
 
 //=================================
@@ -148,15 +166,23 @@ cl.AddCallback({
         let dateTimeRange: MomentRange = memoryManager.Get("resolved-times", AS_MOMENTRANGE)
         let movies : Movie[] = FindMovieMatch(movieName, genre, city, state, theaterName, dateTimeRange)
 
+        memoryManager.Delete("found-time")
+        memoryManager.Delete("found-theater")
+        memoryManager.Delete("found-rating")
+        memoryManager.Delete("found-movies")
+        memoryManager.Delete("found-excess")
 
         if (movies.length === 0) {
             // Clear found slots
             memoryManager.Delete("found-time")
             memoryManager.Delete("found-theater")
+
+            // TODO recomend?
         }
         // If a single movie, get maching showtimes
         else if (movies.length == 1) {
             memoryManager.Set("found-movies", movies[0].name)
+            memoryManager.Set("found-rating", movies[0].rating)
             let showings: Showing[] = FindShowingMatch(movies[0], city, state, theaterName, dateTimeRange)
 
             // If a single showing, get matching times
@@ -171,12 +197,12 @@ cl.AddCallback({
             }
             
         }
-        else if (movies.length < 5) {
-            memoryManager.Delete("found-time")
-            memoryManager.Delete("found-theater")
+        else if (movies.length < 10) {
             memoryManager.Set("found-movies", movies.map(m => m.name))
         }
-        //memoryManager.Set("movies", movies)
+        else if (movies.length >= 10) {
+            memoryManager.Set("found-excess", true)
+        }
     }
 })
 
